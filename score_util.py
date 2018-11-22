@@ -8,7 +8,7 @@ from rdkit import rdBase
 import sascorer
 
 rdBase.DisableLog('rdApp.error')
-
+INFINITY = -1e4
 
 # from https://github.com/gablg1/ORGAN/blob/master/organ/mol_metrics.py#L83
 def verify_sequence(smile):
@@ -32,7 +32,7 @@ def calc_score(smiles):
         try:
             molecule = MolFromSmiles(smiles)
             if Descriptors.MolWt(molecule) > 500:
-                return -1e10
+                return -INFINITY
             current_log_P_value = Descriptors.MolLogP(molecule)
             current_SA_score = -sascorer.calculateScore(molecule)
             cycle_list = nx.cycle_basis(nx.Graph(rdmolops.GetAdjacencyMatrix(molecule)))
@@ -55,6 +55,6 @@ def calc_score(smiles):
                      + current_cycle_score_normalized)
             return score
         except Exception:
-            return -1e10
+            return -INFINITY
     else:
-        return -1e10
+        return -INFINITY

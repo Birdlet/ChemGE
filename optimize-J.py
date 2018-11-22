@@ -3,6 +3,8 @@ import argparse
 import copy
 import nltk
 import threading
+import sys
+import time
 
 import numpy as np
 from rdkit import Chem
@@ -84,16 +86,24 @@ def current_best():
     global std_score
     global all_smiles
     elapsed_min += 1
-    print("${},{},{},{}"
-          .format(elapsed_min, best_score, best_smiles, len(all_smiles)))
-    t = threading.Timer(60, current_best, [])
-    t.start()
+    print("${:4d},{:8.2f},{},{:8.2f}"
+          .format(elapsed_min, best_score, best_smiles, len(all_smiles)),
+          file = sys.stderr)
+    #t = threading.Timer(60, current_best, [])
+    #t.start()
 
+
+def log_file(log, results):
+    with open(log, "w") as f:
+        for data in results:
+            line = "{:12.4f},{}\n".format(data[0], data[1])
+            f.write(line)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--smifile', default='250k_rndm_zinc_drugs_clean.smi')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument("--log", default="log.txt")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -108,6 +118,7 @@ def main():
     N_lambda = 200
 
     # initialize population
+    print("Initializing Population....")
     seed_smiles = []
     with open(args.smifile) as f:
         for line in f:
@@ -127,11 +138,13 @@ def main():
 
     population = sorted(population, key=lambda x: x[0], reverse=True)[:N_mu]
 
-    t = threading.Timer(60, current_best, [])
-    t.start()
-    print("Start!")
+    #t = threading.Timer(1, current_best, [])
+    #t.start()
+    print("Generation Start!")
     all_smiles = [p[1] for p in population]
-    for generation in range(1000000000):
+    all_result = []
+
+    for generation in range(1000):
         scores = [p[0] for p in population]
         mean_score = np.mean(scores)
         min_score = np.min(scores)
@@ -139,8 +152,10 @@ def main():
         best_score = np.max(scores)
         idx = np.argmax(scores)
         best_smiles = population[idx][1]
-        print("%{},{},{},{},{}".format(generation, best_score,
-                                       mean_score, min_score, std_score))
+        print("%{:4d},{:8.2f},{:8.2f},{:8.2f},{:8.2f}".format(
+            generation, best_score,
+            mean_score, min_score, std_score),
+            end = "\r")
 
         new_population = []
         for _ in range(N_lambda):
@@ -156,8 +171,15 @@ def main():
                 all_smiles.append(c_smiles)
 
         population.extend(new_population)
+        all_result.extend(new_population)
         population = sorted(population,
                             key=lambda x: x[0], reverse=True)[:N_mu]
+        if generation%15 == 0:
+            current_best()
+
+    print("\nFinished!")
+    log_file(args.log, all_result)
+
 
 if __name__ == "__main__":
     main()
