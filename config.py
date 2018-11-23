@@ -1,3 +1,5 @@
+import nltk
+
 # the zinc grammar
 zinc_gram = """smiles -> chain
 atom -> bracket_atom
@@ -75,4 +77,4 @@ chain -> chain bond branched_atom
 Nothing -> None"""
 
 # form the CFG and get the start symbol
-GCFG = nltk.CFG.fromstring(gram)
+GCFG = nltk.CFG.fromstring(zinc_gram)
