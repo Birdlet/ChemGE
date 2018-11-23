@@ -1,7 +1,5 @@
-import nltk
-
 # the zinc grammar
-gram = """smiles -> chain
+zinc_gram = """smiles -> chain
 atom -> bracket_atom
 atom -> aliphatic_organic
 atom -> aromatic_organic

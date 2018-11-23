@@ -104,6 +104,9 @@ def main():
     parser.add_argument('--smifile', default='250k_rndm_zinc_drugs_clean.smi')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument("--log", default="log.txt")
+    parser.add_argument('--mu', type=int, default=32)
+    parser.add_argument('--lam', type=int, default=64)
+    parser.add_argument('--generation', type=int, default=1000)
     args = parser.parse_args()
 
     np.random.seed(args.seed)
