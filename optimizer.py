@@ -10,17 +10,30 @@ class optimizer():
         self._population = []
         self._grammer = "zinc_grammer"
         self._GCFG = GCFG
-        self._tokenize = self._get_zinc_tokenizer(self._GCFG)
+        self._productions = self._GCFG.productions()
+        self._productions_map  = self._get_productions_map()
+        self._tokenize = self._get_zinc_tokenizer()
         self._parser = nltk.ChartParser(self._GCFG)
 
-    def _get_zinc_tokenizer(self, cfg):
-        long_tokens = [a for a in cfg._lexical_index.keys() if len(a) > 1]
+    def _get_zinc_tokenizer(self):
+        # Return tokenizer for smiles
+        long_tokens = [a for a in self._GCFG._lexical_index.keys() if len(a) > 1]
         replacements = ['$', '%', '^']
         assert len(long_tokens) == len(replacements)
         for token in replacements:
-            assert token not in cfg._lexical_index
+            assert token not in self._GCFG._lexical_index
 
         def tokenize(smiles):
+            """Tokenize smiles, called by `self.encode` function
+            #
+            # Input:
+            #   smiles : smiles to be tokenized
+            # Return:
+            #   a list of char with tokenized smiles 
+            #
+            # Example:
+            #   "O=C=O" -> ['O', '=', 'C', 'O', '=']
+            """
             for i, token in enumerate(long_tokens):
                 smiles = smiles.replace(token, replacements[i])
             tokens = []
@@ -34,22 +47,29 @@ class optimizer():
         return tokenize
 
 
-    def encode(self, smiles):
-        tokens = self._tokenize(smiles)
-        parser = nltk.ChartParser(self._GCFG)
-        # if you use Python 2: parse_tree = parser.parse(tokens).next()
-        parse_tree = parser.parse(tokens).__next__()
-        productions_seq = parse_tree.productions()
-        productions = GCFG.productions()
-        prod_map = {}
-        for ix, prod in enumerate(productions):
-            prod_map[prod] = ix
-        indices = np.array([prod_map[prod] for prod in productions_seq], dtype=int)
-        return indices
+    def _get_productions_map(self):
+        # Return a dict of production map
+        productions_map = {}
+        for ix, prod in enumerate(self._productions):
+            productions_map[prod] = ix
+        return productions_map
 
-    def decode(self, rule):
-        productions = self._GCFG.productions()
-        prod_seq = [productions[i] for i in rule]
+
+    def decode(self, gene):
+        """Generate productions of smiles
+        #
+        # Input:
+        #   gene : np.ndarray of int
+        #           smiles to be encoded
+        # Return:
+        #   smiles: string
+        #   return smiles if it is a valid molecular, or return ``""`` empty string
+        #
+        # Example:
+        #   array([ 0, 72, 72, 70, 60,  2,  5, 54, 60,  2,  7, 54, 60,  2,  5]) -> "O=C=O"
+        """
+        rule = self.gene_to_rules(gene)
+        prod_seq = [self._productions[i] for i in rule]
 
         # prod_to_eq
         seq = [prod_seq[0].lhs()]
@@ -67,11 +87,27 @@ class optimizer():
         return smiles
 
 
-    def CFGtoGene(self, prod_rules, max_len=-1):
+    def encode(self, smiles, max_len=-1):
+        """Encode smiles to gene
+        #
+        # Input:
+        #   smiles : string
+        #           smiles to be encoded
+        #   max_len : int
+        #           maxium gene length allowed, '-1' means unlimited,
+        #           default is ``-1``.
+        # Return:
+        #   gene : np.ndarray of int
+        #   procution rules for smiles  
+        #
+        # Example:
+        #   "O=C=O" -> array([ 0, 72, 72, 70, 60,  2,  5, 54, 60,  2,  7, 54, 60,  2,  5])
+        """
+        production_rules = self.smiles_to_rules(smiles)
         gene = []
-        for r in prod_rules:
-            lhs = GCFG.productions()[r].lhs()
-            possible_rules = [idx for idx, rule in enumerate(GCFG.productions())
+        for r in production_rules:
+            lhs = self._productions[r].lhs()
+            possible_rules = [idx for idx, rule in enumerate(self._productions)
                             if rule.lhs() == lhs]
             gene.append(possible_rules.index(r))
         if max_len > 0:
@@ -83,9 +119,44 @@ class optimizer():
         return gene
 
 
-    def GenetoCFG(self, gene):
-        prod_rules = []
-        stack = [GCFG.productions()[0].lhs()]
+    def smiles_to_rules(self, smiles):
+        """Generate productions of smiles
+        #
+        # Input:
+        #   smiles : string
+        #           smiles to be encoded; this function should only be called
+        #           by ``self._encode``
+        # Return:
+        #   indices : np.ndarray of int
+        #           procution rules for smiles, a np.ndarray of int  
+        #
+        # Example:
+        #   "O=C=O" -> array([ 0, 72, 72, 70, 60,  2,  5, 54, 60,  2,  7, 54, 60,  2,  5])
+        """
+        # tokenize smiles
+        tokens = self._tokenize(smiles)
+        # return the only one nltk parse tree
+        parse_tree = next(self._parser.parse(tokens)) 
+        productions_of_smiles= parse_tree.productions()
+        indices = np.array([self._productions_map[prod] for prod in productions_of_smiles],
+            dtype=int)
+        return indices
+
+
+    def gene_to_rules(self, gene):
+        """Reture productions of gene
+        #
+        # Input:
+        #   gene: gene for a smiles, list of int
+        # Return:
+        #   procution rules for gene, a list of int
+        #
+        # smiles "O=C=O":
+        # [0, 2, 2, 0, 0, 1, 1, 1, 0, 1, 3, 1, 0, 1, 1] -> 
+        #    [0, 72, 72, 70, 60, 2, 5, 54, 60, 2, 7, 54, 60, 2, 5]
+        """
+        production_rules = []
+        stack = [self._productions[0].lhs()]
         for g in gene:
             try:
                 lhs = stack.pop()
@@ -94,12 +165,12 @@ class optimizer():
             possible_rules = [idx for idx, rule in enumerate(GCFG.productions())
                             if rule.lhs() == lhs]
             rule = possible_rules[g % len(possible_rules)]
-            prod_rules.append(rule)
+            production_rules.append(rule)
             rhs = filter(lambda a: (type(a) == nltk.grammar.Nonterminal)
                         and (str(a) != 'None'),
                         self._GCFG.productions()[rule].rhs())
             stack.extend(list(rhs)[::-1])
-        return prod_rules
+        return production_rules
     
     
     def _log(self, epoches, population, population_size):
@@ -121,36 +192,20 @@ class optimizer():
                 f.write(line)
 
 
-    def optimize(self):
-        pass
-
-
-class optimizerJ(optimizer):
-    def __init__(self):
-        optimizer.__init__(self)
-
-
-    def _log(self, epoches, population, population_size):
-        scores = [p[0] for p in population]
-        mean_score = np.mean(scores)
-        best_score = np.max(scores)
-        idx = np.argmax(scores)
-        best_smiles = population[idx][1]
-
-        print("Generation:{:<4d},{:8.2f},{:8.2f},  {},{:4d}"
-            .format(epoches, mean_score, best_score, best_smiles, population_size))
-            #file = sys.stderr)
-
-
-    def _log_file(self, log, results):
-        with open(log, "w") as f:
-            for data in results:
-                line = "{:12.4f},{}\n".format(data[0], data[1])
-                f.write(line)
-
-
-    def optimize(self, smiles, log = None, mu=32, lam=64, generation=1000, seed=0, verbose=True):
-        np.random.seed(seed)
+    def optimize(self, smiles, mu, lam, generation, scorer, log=None, seed=-1, verbose=True):
+        """Run optimizer for a given population with a target
+        #
+        # Input:
+        #   gene: gene for a smiles, list of int
+        # Return:
+        #   procution rules for gene, a list of int
+        #
+        # smiles "O=C=O":
+        # [0, 2, 2, 0, 0, 1, 1, 1, 0, 1, 3, 1, 0, 1, 1] -> 
+        #    [0, 72, 72, 70, 60, 2, 5, 54, 60, 2, 7, 54, 60, 2, 5]
+        """
+        if seed > -1:
+            np.random.seed(seed)
         gene_length = 300
 
         # Initialize population
@@ -158,10 +213,15 @@ class optimizerJ(optimizer):
 
         # Generation 0, start from input smiles
         initial_smiles = np.random.choice(smiles, mu+lam) 
-        initial_smiles = [util.canonicalize(s) for s in initial_smiles]
-        initial_genes = [self.CFGtoGene(self.encode(s), max_len=gene_length)
+        initial_smiles = [util.canonicalize(smi) for smi in initial_smiles]
+        initial_genes = [self.encode(s, max_len=gene_length)
                         for s in initial_smiles]
-        initial_scores = [scorer.score(s) for s in initial_smiles]
+        initial_scores = []
+        print(r"|0%--------------------50%-------------------100%|")
+        for i, smi in enumerate(initial_smiles):
+            initial_scores.append(scorer(smi))
+            print("*"*int(50*i/(mu+lam)), end='\r')
+        print("\nInitialize finished!")
 
         population = []
         for score, gene, smiles in zip(initial_scores, initial_genes,
@@ -185,10 +245,11 @@ class optimizerJ(optimizer):
                 p = population[np.random.randint(mu)] 
                 p_gene = p[2]
                 c_gene = util.mutation(p_gene)
-
-                c_smiles = util.canonicalize(self.decode(self.GenetoCFG(c_gene)))
+                c_smiles = util.canonicalize(self.decode(c_gene))
+                #print(c_smiles, c_smiles not in all_smiles)
+                # Umm, not as good as I supposed
                 if c_smiles not in all_smiles:
-                    c_score = scorer.score(c_smiles)
+                    c_score = scorer(c_smiles)
                     c = (c_score, c_smiles, c_gene)
                     new_population.append(c)
                     all_smiles.append(c_smiles)
@@ -214,9 +275,39 @@ class optimizerJ(optimizer):
         return all_result
 
 
+class optimizerJ(optimizer):
+    def __init__(self):
+        super().__init__()
+
+
+    def _log(self, epoches, population, population_size):
+        scores = [p[0] for p in population]
+        mean_score = np.mean(scores)
+        best_score = np.max(scores)
+        idx = np.argmax(scores)
+        best_smiles = population[idx][1]
+
+        print("Generation:{:<4d},{:8.2f},{:8.2f},  {},{:4d}"
+            .format(epoches, mean_score, best_score, best_smiles, population_size))
+            #file = sys.stderr)
+
+
+    def _log_file(self, log, results):
+        with open(log, "w+") as f:
+            f.write("score,smiles\n")
+            for data in results:
+                line = "{},{}\n".format(data[0], data[1])
+                f.write(line)
+
+
+    def optimize(self, smiles, mu=32, lam=64, generation=1000, log=None, seed=-1, verbose=True):
+        super().optimize(smiles, mu, lam, generation,
+            scorer=scorer.scorej, log=log, seed=seed, verbose=verbose)
+
+
 class optimizerRDock(optimizer):
     def __init__(self):
-        optimizer.__init__()
+        optimizer.__init__(self)
 
     def _log(self, epoches, population, population_size):
         scores = [p[0] for p in population]
@@ -248,7 +339,7 @@ class optimizerRDock(optimizer):
         # Generation 0, start from input smiles
         initial_smiles = np.random.choice(smiles, mu+lam) 
         initial_smiles = [util.canonicalize(s) for s in initial_smiles]
-        initial_genes = [self.CFGtoGene(self.encode(s), max_len=gene_length)
+        initial_genes = [self.encode(s, max_len=gene_length)
                         for s in initial_smiles]
         initial_scores = [scorer.score(s) for s in initial_smiles]
 
@@ -275,7 +366,7 @@ class optimizerRDock(optimizer):
                 p_gene = p[2]
                 c_gene = util.mutation(p_gene)
 
-                c_smiles = util.canonicalize(self.decode(self.GenetoCFG(c_gene)))
+                c_smiles = util.canonicalize(self.decode(c_gene))
                 if c_smiles not in all_smiles:
                     c_score = scorer.score(c_smiles)
                     c = (c_score, c_smiles, c_gene)
@@ -340,7 +431,7 @@ class optimizerVina(optimizer):
         # Generation 0, start from input smiles
         initial_smiles = np.random.choice(smiles, mu+lam) 
         initial_smiles = [util.canonicalize(s) for s in initial_smiles]
-        initial_genes = [self.CFGtoGene(self.encode(s), max_len=gene_length)
+        initial_genes = [self.encode(s, max_len=gene_length)
                         for s in initial_smiles]
         initial_scores = []
         print(r"|0%--------------------50%-------------------100%|")
@@ -373,7 +464,7 @@ class optimizerVina(optimizer):
                 p_gene = p[2]
                 c_gene = util.mutation(p_gene)
 
-                c_smiles = util.canonicalize(self.decode(self.GenetoCFG(c_gene)))
+                c_smiles = util.canonicalize(self.decode(c_gene))
                 if c_smiles not in all_smiles:
                     c_score = scorer.score(c_smiles)
                     c = (c_score, c_smiles, c_gene)
@@ -387,7 +478,7 @@ class optimizerVina(optimizer):
 
             if epoch%15 == 0 and verbose:
                 # Log on screen
-                self._log(epoch, population, population_size =len(all_smiles))
+                self._log(epoch, population, population_size=len(all_smiles))
 
         print("\nFinished!")
 

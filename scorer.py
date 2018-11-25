@@ -30,7 +30,7 @@ cycle_mean = -0.048  # np.mean(cycle_scores)
 cycle_std = 0.287    # np.std(cycle_scores)
 
 
-def score(smiles):
+def scorej(smiles):
     if verify_sequence(smiles):
         try:
             molecule = Chem.MolFromSmiles(smiles)
